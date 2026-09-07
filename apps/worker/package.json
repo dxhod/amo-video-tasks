@@ -1,0 +1,17 @@
+{
+  "name": "@amo/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx --env-file=../../.env src/index.ts",
+    "start": "node dist/index.js",
+    "build": "tsup",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@amo/shared": "*",
+    "@supabase/supabase-js": "2.115.0",
+    "dotenv": "17.4.2"
+  }
+}

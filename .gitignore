@@ -1,0 +1,15 @@
+node_modules/
+.next/
+dist/
+.env
+.env.*
+!.env.example
+!.env.test.example
+coverage/
+playwright-report/
+test-results/
+supabase/.temp/
+supabase/.branches/
+.local/
+*.tsbuildinfo
+*.log
