@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -30,7 +30,12 @@ async function fixture(name: string, audio: boolean, vertical = false) {
     "-i",
     `color=c=blue:s=${vertical ? "180x320" : "320x180"}:r=30:d=1`,
     ...(audio
-      ? ["-f", "lavfi", "-i", "sine=frequency=440:duration=2:sample_rate=48000"]
+      ? [
+          "-f",
+          "lavfi",
+          "-i",
+          "aevalsrc=0.3*sin(2*PI*if(lt(t\\,1)\\,440\\,880)*t):s=48000:d=2",
+        ]
       : []),
     "-filter_complex",
     "[0:v][1:v]concat=n=2:v=1:a=0[v]",
@@ -96,6 +101,36 @@ describe("real FFmpeg", () => {
         ...stats.stdout.matchAll(/lavfi.signalstats.UAVG=([\d.]+)/g),
       ].map((m) => Number(m[1]));
       expect(u[0]).toBeGreaterThan(u[44] + 80);
+      if (audio) {
+        const pcm = join(dir, "reordered-audio.pcm");
+        await ffmpeg([
+          "-i",
+          output,
+          "-vn",
+          "-ac",
+          "1",
+          "-ar",
+          "48000",
+          "-f",
+          "s16le",
+          pcm,
+        ]);
+        const bytes = await readFile(pcm);
+        const frequency = (start: number) => {
+          let crossings = 0;
+          const first = Math.round(start * 48000);
+          const count = 12000;
+          for (let n = first + 1; n < first + count; n++)
+            if (
+              bytes.readInt16LE(2 * (n - 1)) <= 0 &&
+              bytes.readInt16LE(2 * n) > 0
+            )
+              crossings++;
+          return crossings * 4;
+        };
+        expect(frequency(0.1)).toBeCloseTo(880, -1);
+        expect(frequency(1.1)).toBeCloseTo(440, -1);
+      }
     },
   );
   it("keeps vertical geometry without upscaling", async () => {
@@ -103,6 +138,24 @@ describe("real FFmpeg", () => {
     const info = await normalize(input, join(dir, "vertical-normal.mp4"));
     expect([info.width, info.height]).toEqual([180, 320]);
   });
+  it.each([true, false])(
+    "preserves one-frame cuts and repeated clips, audio=%s",
+    async (audio) => {
+      const input = await fixture(`tiny-${audio}.mp4`, audio);
+      const clips = [59, 0, 30, 0, 45, 15].map((start) => ({
+        id: randomUUID(),
+        asset_id: asset,
+        start,
+        end: start + 1,
+      }));
+      const output = join(dir, `tiny-result-${audio}.mp4`);
+      const result = await render(input, output, clips, asset);
+      expect(result.frames).toBe(6);
+      expect(result.hasAudio).toBe(audio);
+      const decoded = await ffmpeg(["-i", output, "-f", "null", "-"]);
+      expect(decoded.stderr).not.toMatch(/non.monoton|invalid|corrupt/i);
+    },
+  );
   it("rejects corrupt files and clips exceeding the source", async () => {
     const bad = join(dir, "bad.mp4");
     await writeFile(bad, "not video");

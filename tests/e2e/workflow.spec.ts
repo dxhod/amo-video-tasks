@@ -59,6 +59,38 @@ test("team video workflow through the browser", async ({ page, browser }) => {
   await expect(
     page.getByRole("button", { name: "Рендерити версію" }),
   ).toBeVisible({ timeout: 120000 });
+  const clips = page.locator(".clip");
+  await clips.first().scrollIntoViewIfNeeded();
+  const secondLabel = await clips.nth(1).getAttribute("aria-label");
+  const from = await page
+    .getByRole("button", { name: "Переставити фрагмент", exact: true })
+    .first()
+    .boundingBox();
+  const to = await clips.nth(1).boundingBox();
+  expect(from).toBeTruthy();
+  expect(to).toBeTruthy();
+  await page.mouse.move(from!.x + from!.width / 2, from!.y + from!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(to!.x + to!.width / 2, to!.y + to!.height / 2, {
+    steps: 15,
+  });
+  await page.mouse.up();
+  await expect(clips.first()).toHaveAttribute("aria-label", secondLabel!);
+  await expect(
+    page.getByText("Усі зміни збережено", { exact: true }),
+  ).toBeVisible();
+  await page.reload();
+  await expect(clips.first()).toHaveAttribute("aria-label", secondLabel!);
+  // Restore the source order so subsequent numeric trim assertions stay readable.
+  const handle = page
+    .getByRole("button", { name: "Переставити фрагмент", exact: true })
+    .first();
+  await handle.focus();
+  await page.keyboard.press("Space");
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("Space");
+  await expect(clips.first()).not.toHaveAttribute("aria-label", secondLabel!);
+  await clips.first().click();
   await page.getByLabel("Кінець, кадр", { exact: true }).fill("15");
   await page.getByRole("button", { name: "Рендерити версію" }).click();
   await expect(page.getByRole("link", { name: "Відкрити MP4" })).toBeVisible({

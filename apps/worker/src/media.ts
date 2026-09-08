@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 import {
   FPS,
   MAX_SECONDS,
@@ -137,8 +139,12 @@ export async function normalize(
     [
       "-protocol_whitelist",
       "file,pipe",
+      "-threads",
+      "2",
       "-i",
       input,
+      "-filter_threads",
+      "1",
       "-map",
       "0:v:0",
       "-map",
@@ -259,33 +265,94 @@ export async function render(
   const source = await probe(input, options.signal);
   validateTimeline(clips, assetId, source.frames);
   const started = Date.now();
-  await ffmpeg(
-    [
-      "-i",
-      input,
-      "-filter_complex",
-      renderGraph(clips, source.hasAudio),
-      "-map",
-      "[video]",
-      ...(source.hasAudio ? ["-map", "[audio]", "-c:a", "aac"] : ["-an"]),
-      "-c:v",
-      "libx264",
-      "-preset",
-      "veryfast",
-      "-crf",
-      "20",
-      "-pix_fmt",
-      "yuv420p",
-      "-threads",
-      "2",
-      "-movflags",
-      "+faststart",
-      "-progress",
-      "pipe:1",
-      output,
-    ],
-    options,
-  );
+  // A split/concat graph buffers most of the source for reversed clips. Process
+  // one clip at a time so memory does not grow with the timeline length.
+  // NUT preserves rational video timestamps; PCM avoids AAC priming at every cut.
+  const work = await mkdtemp(join(dirname(output), "render-parts-"));
+  try {
+    let completed = 0;
+    for (const [i, clip] of clips.entries()) {
+      const duration = (clip.end - clip.start) / FPS;
+      await ffmpeg(
+        [
+          "-threads",
+          "2",
+          "-i",
+          input,
+          "-filter_threads",
+          "1",
+          "-map",
+          "0:v:0",
+          "-vf",
+          `trim=start_frame=${clip.start}:end_frame=${clip.end},setpts=PTS-STARTPTS`,
+          ...(source.hasAudio
+            ? [
+                "-map",
+                "0:a:0",
+                "-af",
+                `atrim=start=${clip.start / FPS}:end=${clip.end / FPS},asetpts=PTS-STARTPTS,apad,atrim=duration=${duration}`,
+                "-c:a",
+                "pcm_s16le",
+              ]
+            : ["-an"]),
+          "-c:v",
+          "libx264",
+          "-preset",
+          "veryfast",
+          "-crf",
+          "20",
+          "-pix_fmt",
+          "yuv420p",
+          "-threads",
+          "2",
+          "-x264-params",
+          "rc-lookahead=10:sync-lookahead=0",
+          "-progress",
+          "pipe:1",
+          join(work, `part-${i}.nut`),
+        ],
+        {
+          ...options,
+          progress: (s) =>
+            options.progress?.(completed + Math.min(s, duration)),
+        },
+      );
+      completed += duration;
+    }
+    const list = join(work, "parts.txt");
+    await writeFile(
+      list,
+      clips
+        .map(
+          (c, i) =>
+            `file 'part-${i}.nut'\nduration ${(c.end - c.start) / FPS}\n`,
+        )
+        .join(""),
+    );
+    await ffmpeg(
+      [
+        "-f",
+        "concat",
+        "-safe",
+        "1",
+        "-i",
+        list,
+        "-map",
+        "0:v:0",
+        "-c:v",
+        "copy",
+        ...(source.hasAudio ? ["-map", "0:a:0", "-c:a", "aac"] : ["-an"]),
+        "-movflags",
+        "+faststart",
+        output,
+      ],
+      { ...options, progress: undefined },
+    );
+  } finally {
+    // mkdtemp returns a new child directory of the caller's temporary job folder.
+    if (dirname(resolve(work)) === resolve(dirname(output)))
+      await rm(work, { recursive: true, force: true });
+  }
   const result = await probe(output, options.signal);
   const expected = clips.reduce((s, c) => s + c.end - c.start, 0);
   if (Math.abs(result.frames - expected) > 1)
