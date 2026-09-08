@@ -359,7 +359,10 @@ export function Editor({
     <div>
       <div className="editor-stage">
         <div className="stage-top">
-          <span>ПЕРЕДПЕРЕГЛЯД · V{version.number}</span>
+          <span>
+            ПЕРЕДПЕРЕГЛЯД ·{" "}
+            {version.number === 0 ? "ОРИГІНАЛ" : `V${version.number}`}
+          </span>
           <span>30 FPS · {asset.has_audio ? "ВІДЕО + ЗВУК" : "БЕЗ ЗВУКУ"}</span>
         </div>
         <div className="video-wrap">

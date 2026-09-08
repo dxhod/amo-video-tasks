@@ -641,7 +641,11 @@ export function Task({ id }: { id: string }) {
               )}
             </section>
             <section className="panel">
-              <h3>Результат v{version.number}</h3>
+              <h3>
+                {version.number === 0
+                  ? "Результат оригіналу"
+                  : `Результат v${version.number}`}
+              </h3>
               {render ? (
                 <>
                   <div className="version-result">
@@ -702,7 +706,10 @@ export function Task({ id }: { id: string }) {
             </section>
             {!!history.length && (
               <section className="panel">
-                <h3>Попередні рендери v{version.number}</h3>
+                <h3>
+                  Попередні рендери{" "}
+                  {version.number === 0 ? "оригіналу" : `v${version.number}`}
+                </h3>
                 {!render && (
                   <p role="status">
                     Монтаж змінено. Попередній результат застарів — потрібен
