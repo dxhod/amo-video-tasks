@@ -84,6 +84,7 @@ export function validateCommand(action: string, p: Record<string, unknown>) {
   }
   if (action === "task.status") {
     z.enum(["todo", "in_progress", "review", "done"]).parse(p.status);
+    if (p.status === "review") z.uuid().parse(p.version_id);
     if (p.comment !== undefined)
       z.string().trim().min(1).max(5000).parse(p.comment);
   }

@@ -211,7 +211,34 @@ describe("Supabase workflow", () => {
     expect(
       (await editor.db.from("tasks").select("status").eq("id", task).single())
         .data?.status,
-    ).toBe("review");
+    ).toBe("in_progress");
+    await cmd(editor.db, "task.status", {
+      task_id: task,
+      status: "review",
+      version_id: v1.id,
+    });
+    expect(
+      (
+        await editor.db
+          .from("tasks")
+          .select("status,current_version_id,review_version_id")
+          .eq("id", task)
+          .single()
+      ).data,
+    ).toMatchObject({
+      status: "review",
+      current_version_id: v1.id,
+      review_version_id: v1.id,
+    });
+    expect(
+      (
+        await reviewer.db
+          .from("edit_versions")
+          .select("number")
+          .eq("task_id", task)
+          .order("number")
+      ).data,
+    ).toEqual([{ number: 0 }, { number: v1.number }]);
     await expect(
       cmd(editor.db, "task.status", { task_id: task, status: "done" }),
     ).rejects.toThrow("FORBIDDEN");
@@ -228,6 +255,14 @@ describe("Supabase workflow", () => {
     ).data!;
     expect(done.status).toBe("done");
     expect(done.completed_by).toBe(editor.id);
+    expect(
+      (
+        await reviewer.db
+          .from("edit_versions")
+          .select("number")
+          .eq("task_id", task)
+      ).data,
+    ).toEqual([{ number: v1.number }]);
     await expect(
       cmd(editor.db, "version.copy", { version_id: v1.id }),
     ).rejects.toThrow("VERSION_LOCKED");
@@ -320,11 +355,6 @@ describe("Supabase workflow", () => {
     ).toBe("succeeded");
   });
   it("fences a stale worker and safely redelivers after lease expiration", async () => {
-    await cmd(admin.db, "task.status", {
-      task_id: task,
-      status: "in_progress",
-      comment: "Перевірка відновлення worker",
-    });
     const v = await cmd(editor.db, "version.copy", { version_id: v1.id });
     await cmd(editor.db, "render.start", {
       version_id: v.id,
@@ -394,6 +424,18 @@ it("re-edits a rendered version in progress, retains both MP4s and requires a fr
   const old = (
     await db.from("renders").select("*").eq("version_id", v.id).single()
   ).data!;
+  const allVersionCount = (
+    await db
+      .from("edit_versions")
+      .select("id")
+      .eq("task_id", task)
+      .is("deleted_at", null)
+  ).data!.length;
+  await cmd(editor.db, "task.status", {
+    task_id: task,
+    status: "review",
+    version_id: v.id,
+  });
   await expect(
     cmd(editor.db, "version.save", {
       version_id: v.id,
@@ -406,6 +448,10 @@ it("re-edits a rendered version in progress, retains both MP4s and requires a fr
     status: "in_progress",
     comment: "Edit same version",
   });
+  expect(
+    (await reviewer.db.from("edit_versions").select("id").eq("task_id", task))
+      .data,
+  ).toHaveLength(allVersionCount);
   const changed = [{ ...v.timeline[0], end: v.timeline[0].start + 8 }];
   const saved = await cmd(editor.db, "version.save", {
     version_id: v.id,
@@ -416,7 +462,11 @@ it("re-edits a rendered version in progress, retains both MP4s and requires a fr
   expect(saved.id).not.toBe(v.id);
   expect(saved.revision).toBe(1);
   await expect(
-    cmd(editor.db, "task.status", { task_id: task, status: "review" }),
+    cmd(editor.db, "task.status", {
+      task_id: task,
+      status: "review",
+      version_id: saved.id,
+    }),
   ).rejects.toThrow("RENDER_REQUIRED");
   expect(
     (await db.from("edit_versions").select("timeline").eq("id", v.id).single())
@@ -449,6 +499,15 @@ it("re-edits a rendered version in progress, retains both MP4s and requires a fr
     db,
     await rpc(db, "worker_claim", { p_worker: "revision-render" }),
   );
+  expect(
+    (await db.from("tasks").select("status").eq("id", task).single()).data
+      ?.status,
+  ).toBe("in_progress");
+  await cmd(editor.db, "task.status", {
+    task_id: task,
+    status: "review",
+    version_id: saved.id,
+  });
   const results = (
     await db.from("renders").select("*").in("version_id", [v.id, saved.id])
   ).data!;
@@ -459,9 +518,17 @@ it("re-edits a rendered version in progress, retains both MP4s and requires a fr
     2,
   );
   for (const r of results)
-    expect(
-      (await editor.db.storage.from("media").download(r.path)).error,
-    ).toBeNull();
+    expect((await db.storage.from("media").download(r.path)).error).toBeNull();
+  expect(
+    (await editor.db.storage.from("media").download(old.path)).error,
+  ).toBeTruthy();
+  expect(
+    (
+      await editor.db.storage
+        .from("media")
+        .download(results.find((r) => r.version_id === saved.id)!.path)
+    ).error,
+  ).toBeNull();
   expect(
     (await db.from("tasks").select("status").eq("id", task).single()).data
       ?.status,

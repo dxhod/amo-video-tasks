@@ -428,27 +428,20 @@ export function Task({ id }: { id: string }) {
               Повернути в роботу
             </Button>
           )}
-          {t.status === "in_progress" &&
-            editable &&
-            data.renders.some(
-              (r: any) =>
-                r.version_id === t.current_version_id &&
-                r.version_revision ===
-                  data.versions.find((v: any) => v.id === t.current_version_id)
-                    ?.revision,
-            ) && (
-              <Button
-                disabled={busy || !!activeJob}
-                onClick={() =>
-                  void act("task.status", {
-                    task_id: id,
-                    status: "review",
-                  }).catch(() => {})
-                }
-              >
-                Передати на перевірку
-              </Button>
-            )}
+          {t.status === "in_progress" && editable && render && (
+            <Button
+              disabled={busy || !!activeJob}
+              onClick={() =>
+                void act("task.status", {
+                  task_id: id,
+                  status: "review",
+                  version_id: version.id,
+                }).catch(() => {})
+              }
+            >
+              Передати на перевірку
+            </Button>
+          )}
         </div>
       </div>
       {failure && (

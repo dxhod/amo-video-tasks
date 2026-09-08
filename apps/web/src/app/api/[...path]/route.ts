@@ -178,7 +178,15 @@ export async function GET(req: NextRequest, context: Params) {
           db.from("profiles").select("*"),
         ]);
       const assetRows = unwrap(assets),
-        versionRows = unwrap(versions);
+        allVersionRows = unwrap(versions),
+        versionRows = allVersionRows.filter((v: any) =>
+          task.status === "review"
+            ? v.number === 0 || v.id === task.review_version_id
+            : task.status === "done"
+              ? v.id === task.review_version_id
+              : true,
+        ),
+        visibleVersionIds = new Set(versionRows.map((v: any) => v.id));
       const scenes = assetRows.length
         ? unwrap(
             await db
@@ -228,7 +236,9 @@ export async function GET(req: NextRequest, context: Params) {
         user_id: userId,
         assets: assetRows,
         versions: versionRows,
-        jobs: unwrap(jobs),
+        jobs: unwrap(jobs).filter(
+          (j: any) => !j.version_id || visibleVersionIds.has(j.version_id),
+        ),
         comments: unwrap(comments),
         events: unwrap(events),
         members: unwrap(members),

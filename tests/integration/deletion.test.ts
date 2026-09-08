@@ -85,7 +85,7 @@ it("worker completion preserves the deletion marker and keeps the result for res
     .eq("id", task.id)
     .single();
   expect(archived.data?.deleted_at).toBeTruthy();
-  expect(archived.data?.status).toBe("review");
+  expect(archived.data?.status).toBe("in_progress");
   await cmd(admin.db, "task.restore", { task_id: task.id });
   expect(
     (await admin.db.from("renders").select("version_id").eq("version_id", vid))
