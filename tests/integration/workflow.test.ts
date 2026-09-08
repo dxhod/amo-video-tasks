@@ -119,6 +119,7 @@ describe("Supabase workflow", () => {
           .from("edit_versions")
           .select("*")
           .eq("task_id", task)
+          .eq("number", 1)
           .single()
       ).data;
       expect(v1.timeline.length).toBe(2);
@@ -411,21 +412,19 @@ it("re-edits a rendered version in progress, retains both MP4s and requires a fr
     revision: v.revision,
     timeline: changed,
   });
-  expect(saved.number).toBe(v.number);
-  expect(saved.revision).toBe(v.revision + 1);
+  expect(saved.number).toBeGreaterThan(v.number);
+  expect(saved.id).not.toBe(v.id);
+  expect(saved.revision).toBe(1);
   await expect(
     cmd(editor.db, "task.status", { task_id: task, status: "review" }),
   ).rejects.toThrow("RENDER_REQUIRED");
-  await expect(
-    cmd(editor.db, "version.save", {
-      version_id: v.id,
-      revision: v.revision,
-      timeline: v.timeline,
-    }),
-  ).rejects.toThrow("REVISION_CONFLICT");
+  expect(
+    (await db.from("edit_versions").select("timeline").eq("id", v.id).single())
+      .data?.timeline,
+  ).toEqual(v.timeline);
   const key = `render:${v.id}`;
   const j = await cmd(editor.db, "render.start", {
-    version_id: v.id,
+    version_id: saved.id,
     revision: saved.revision,
     key,
   });
@@ -433,7 +432,7 @@ it("re-edits a rendered version in progress, retains both MP4s and requires a fr
   expect(
     (
       await cmd(editor.db, "render.start", {
-        version_id: v.id,
+        version_id: saved.id,
         revision: saved.revision,
         key,
       })
@@ -441,7 +440,7 @@ it("re-edits a rendered version in progress, retains both MP4s and requires a fr
   ).toBe(j.id);
   await expect(
     cmd(editor.db, "version.save", {
-      version_id: v.id,
+      version_id: saved.id,
       revision: saved.revision,
       timeline: changed,
     }),
@@ -450,13 +449,15 @@ it("re-edits a rendered version in progress, retains both MP4s and requires a fr
     db,
     await rpc(db, "worker_claim", { p_worker: "revision-render" }),
   );
-  const results = (await db.from("renders").select("*").eq("version_id", v.id))
-    .data!;
+  const results = (
+    await db.from("renders").select("*").in("version_id", [v.id, saved.id])
+  ).data!;
   expect(results).toHaveLength(2);
   expect(results.find((r) => r.id === old.id)?.path).toBe(old.path);
-  expect(
-    results.find((r) => r.version_revision === saved.revision)?.duration,
-  ).toBeCloseTo(8 / 30, 2);
+  expect(results.find((r) => r.version_id === saved.id)?.duration).toBeCloseTo(
+    8 / 30,
+    2,
+  );
   for (const r of results)
     expect(
       (await editor.db.storage.from("media").download(r.path)).error,

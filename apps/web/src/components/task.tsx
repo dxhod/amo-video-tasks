@@ -14,6 +14,7 @@ import {
   MessageSquare,
   RotateCcw,
   Film,
+  Trash2,
 } from "lucide-react";
 import { MAX_BYTES, STATUS_LABELS, type TaskStatus } from "@amo/shared";
 import { api, command } from "@/lib/client-api";
@@ -231,7 +232,7 @@ export function Task({ id }: { id: string }) {
     [returning, setReturning] = useState(false),
     [deleting, setDeleting] = useState(false),
     [editorKey, setEditorKey] = useState(0);
-  const flushRef = useRef<(() => Promise<void>) | null>(null);
+  const flushRef = useRef<(() => Promise<string>) | null>(null);
   const refresh = async () => {
     await cache.invalidateQueries({ queryKey: ["task", id] });
     await cache.invalidateQueries({ queryKey: ["project"] });
@@ -524,15 +525,18 @@ export function Task({ id }: { id: string }) {
             scenes={data.scenes}
             urls={data.urls}
             editable={editable && !versionBusy}
-            onSaved={() => void refresh()}
+            onSaved={(versionId) => {
+              setSelectedVersion(versionId);
+              void refresh();
+            }}
             onRefresh={() => {
               void refresh().then(() => setEditorKey((k) => k + 1));
             }}
-            onRender={async (revision) => {
+            onRender={async (revision, versionId) => {
               await act("render.start", {
-                version_id: version.id,
+                version_id: versionId,
                 revision,
-                key: `render:${version.id}:${revision}`,
+                key: `render:${versionId}:${revision}`,
               });
             }}
           />
@@ -544,35 +548,74 @@ export function Task({ id }: { id: string }) {
               </div>
               <small>Кожна версія — окрема історія.</small>
               {data.versions.map((v: any) => (
-                <button
-                  key={v.id}
-                  className={`version-button ${v.id === version.id ? "active" : ""}`}
-                  onClick={async () => {
-                    try {
-                      await flushRef.current?.();
-                      setSelectedVersion(v.id);
-                    } catch (e) {
-                      setFailure((e as Error).message);
-                    }
-                  }}
-                >
-                  <span>
-                    <strong>v{v.number}</strong>{" "}
-                    {v.id === t.current_version_id && (
-                      <small>· актуальна</small>
+                <div key={v.id} className="version-row group relative">
+                  <button
+                    className={`version-button ${v.id === version.id ? "active" : ""}`}
+                    onClick={async () => {
+                      try {
+                        await flushRef.current?.();
+                        setSelectedVersion(v.id);
+                      } catch (e) {
+                        setFailure((e as Error).message);
+                      }
+                    }}
+                  >
+                    <span>
+                      <strong>
+                        {v.number === 0 ? "Оригінал" : `v${v.number}`}
+                      </strong>{" "}
+                      {v.id === t.current_version_id && (
+                        <small>· актуальна</small>
+                      )}
+                    </span>
+                    {!editable ||
+                    data.jobs.some(
+                      (j: any) =>
+                        j.version_id === v.id &&
+                        ["queued", "running"].includes(j.status),
+                    ) ? (
+                      <Lock size={12} />
+                    ) : (
+                      <small>Редагування</small>
                     )}
-                  </span>
-                  {!editable ||
-                  data.jobs.some(
-                    (j: any) =>
-                      j.version_id === v.id &&
-                      ["queued", "running"].includes(j.status),
-                  ) ? (
-                    <Lock size={12} />
-                  ) : (
-                    <small>Редагування</small>
+                  </button>
+                  {editable && v.number !== 0 && (
+                    <button
+                      className="absolute right-2 top-2 rounded bg-white p-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 max-md:opacity-100"
+                      aria-label={`Видалити версію v${v.number}`}
+                      title={`Видалити версію v${v.number}`}
+                      disabled={
+                        busy ||
+                        data.jobs.some(
+                          (j: any) =>
+                            j.version_id === v.id &&
+                            ["queued", "running"].includes(j.status),
+                        )
+                      }
+                      onClick={async () => {
+                        if (
+                          !window.confirm(
+                            `Видалити версію v${v.number}? Вихідне відео та інші версії збережуться.`,
+                          )
+                        )
+                          return;
+                        try {
+                          await flushRef.current?.();
+                          const result = await act("version.delete", {
+                            version_id: v.id,
+                          });
+                          if (version.id === v.id)
+                            setSelectedVersion(result.selected_version_id);
+                          setEditorKey((k) => k + 1);
+                        } catch (e) {
+                          setFailure((e as Error).message);
+                        }
+                      }}
+                    >
+                      <Trash2 size={14} />
+                    </button>
                   )}
-                </button>
+                </div>
               ))}
               {editable && (
                 <Button
@@ -582,13 +625,13 @@ export function Task({ id }: { id: string }) {
                   disabled={busy}
                   onClick={async () => {
                     try {
-                      await flushRef.current?.();
+                      const savedId = await flushRef.current?.();
                       const v = await act("version.copy", {
-                        version_id: version.id,
+                        version_id: savedId ?? version.id,
                       });
                       setSelectedVersion(v.id);
-                    } catch {
-                      /* act displays the error */
+                    } catch (e) {
+                      setFailure((e as Error).message);
                     }
                   }}
                 >

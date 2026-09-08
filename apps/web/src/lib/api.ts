@@ -58,6 +58,7 @@ export const commandSchema = z.object({
     "upload.complete",
     "upload.cancel",
     "version.copy",
+    "version.delete",
     "version.save",
     "render.start",
     "render.retry",

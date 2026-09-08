@@ -107,7 +107,9 @@ test("team video workflow through the browser", async ({ page, browser }) => {
   await page.getByRole("button", { name: "Повернути з коментарем" }).click();
   await expect(page.getByLabel("Кінець, кадр", { exact: true })).toBeEnabled();
   await page.getByLabel("Кінець, кадр", { exact: true }).fill("10");
-  await expect(page.getByText(/Попередній результат застарів/)).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Результат v2" }),
+  ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Передати на перевірку" }),
   ).toHaveCount(0);
@@ -128,8 +130,28 @@ test("team video workflow through the browser", async ({ page, browser }) => {
   await page.getByRole("button", { name: "Повернути з коментарем" }).click();
   await page.getByRole("button", { name: "Нова версія з цієї" }).click();
   await expect(
-    page.getByRole("heading", { name: "Результат v2" }),
+    page.getByRole("heading", { name: "Результат v3" }),
   ).toBeVisible();
+  await page.getByRole("button", { name: "Нова версія з цієї" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Результат v4" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: /^v4/ }).hover();
+  page.once("dialog", (dialog) => dialog.accept());
+  await page
+    .getByRole("button", { name: "Видалити версію v4", exact: true })
+    .click();
+  await expect(page.getByRole("button", { name: /^v4/ })).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: "Результат v3" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: /^Оригінал/ }).click();
+  await expect(clips).toHaveCount(2);
+  await clips.first().click();
+  await expect(page.getByLabel("Кінець, кадр", { exact: true })).toHaveValue(
+    "30",
+  );
+  await page.getByRole("button", { name: /^v3/ }).click();
   await page.getByLabel("Позиція відтворення").fill("5");
   await expect(page.getByLabel("Позиція відтворення")).toHaveValue("5");
   await page.getByRole("button", { name: "Розрізати", exact: true }).click();
@@ -229,7 +251,7 @@ test("team video workflow through the browser", async ({ page, browser }) => {
   ).toBeVisible();
   await page.goto(taskUrl);
   await expect(
-    page.getByRole("heading", { name: "Результат v2" }),
+    page.getByRole("heading", { name: "Результат v3" }),
   ).toBeVisible();
   await expect(
     page.getByText("Перевірено: другий монтаж готовий."),
@@ -270,7 +292,7 @@ test("team video workflow through the browser", async ({ page, browser }) => {
   ).toBeVisible();
   await page.goto(taskUrl);
   await expect(
-    page.getByRole("heading", { name: "Результат v2" }),
+    page.getByRole("heading", { name: "Результат v3" }),
   ).toBeVisible();
   await expect(
     page.getByRole("link", { name: "Відкрити MP4", exact: true }),

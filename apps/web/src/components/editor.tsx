@@ -149,10 +149,10 @@ export function Editor({
   scenes: any[];
   urls: Record<string, string>;
   editable: boolean;
-  onRender: (revision: number) => Promise<void>;
+  onRender: (revision: number, versionId: string) => Promise<void>;
   onRefresh: () => void;
-  onSaved: () => void;
-  flushRef: { current: (() => Promise<void>) | null };
+  onSaved: (versionId: string) => void;
+  flushRef: { current: (() => Promise<string>) | null };
 }) {
   const [store] = useState(() =>
     createEditorStore(version.timeline, version.revision),
@@ -163,6 +163,8 @@ export function Editor({
     clipIndex = useRef(0),
     savedGeneration = useRef(0),
     saving = useRef<Promise<void> | null>(null),
+    workingVersion = useRef(version.id),
+    lockedFailure = useRef(false),
     conflicted = useRef(false);
   const [playing, setPlaying] = useState(false),
     [saveLabel, setSaveLabel] = useState("Усі зміни збережено"),
@@ -187,21 +189,23 @@ export function Editor({
       const work = (async () => {
         try {
           const result = await command("version.save", {
-            version_id: version.id,
+            version_id: workingVersion.current,
             revision: snapshot.revision,
             timeline: snapshot.clips,
           });
           store.getState().ack(result.revision);
+          workingVersion.current = result.id;
           savedGeneration.current = snapshot.generation;
           setSaveLabel("Усі зміни збережено");
           setError("");
-          onSaved();
         } catch (e) {
           if (
             e instanceof ClientError &&
             ["REVISION_CONFLICT", "VERSION_LOCKED"].includes(e.code)
-          )
+          ) {
             conflicted.current = true;
+            lockedFailure.current = e.code === "VERSION_LOCKED";
+          }
           setSaveLabel("Не збережено");
           setError((e as Error).message);
           throw e;
@@ -214,7 +218,29 @@ export function Editor({
         if (saving.current === work) saving.current = null;
       }
     }
+    onSaved(workingVersion.current);
+    return workingVersion.current as string;
   }
+  useEffect(() => {
+    // Polling can update a clean editor after a render or another command.
+    // Never replace unsaved local changes with server state.
+    if (
+      !saving.current &&
+      workingVersion.current === version.id &&
+      version.revision > store.getState().revision &&
+      store.getState().generation === savedGeneration.current
+    ) {
+      store.setState({ clips: version.timeline, revision: version.revision });
+      conflicted.current = false;
+    }
+  }, [version.id, version.revision, version.timeline, store]);
+  useEffect(() => {
+    if (editable && lockedFailure.current) {
+      lockedFailure.current = false;
+      conflicted.current = false;
+      setError("");
+    }
+  }, [editable]);
   useEffect(() => {
     flushRef.current = flush;
     return () => {
@@ -548,7 +574,10 @@ export function Editor({
               setBusy(true);
               try {
                 await flush();
-                await onRender(store.getState().revision);
+                await onRender(
+                  store.getState().revision,
+                  workingVersion.current,
+                );
               } catch (e) {
                 setError((e as Error).message);
               } finally {

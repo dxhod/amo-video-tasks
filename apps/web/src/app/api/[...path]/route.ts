@@ -158,6 +158,7 @@ export async function GET(req: NextRequest, context: Params) {
             .from("edit_versions")
             .select("*")
             .eq("task_id", id)
+            .is("deleted_at", null)
             .order("number"),
           db
             .from("processing_jobs")
