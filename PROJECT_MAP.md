@@ -31,5 +31,14 @@ Docker web/worker зібрані; production web працює на `http://127.0
 2026-09-07: додано м’яке видалення (task.delete/task.restore), міграцію
 20260907090000; відновлення у статистиці проєкту. 2 тести БД та розширений
 Docker workflow пройшли. Активні jobs зберігають результат без скасування видалення.
-Наступне: GitHub, cloud Supabase, два Railway-сервіси та live Telegram після
-окремого дозволу й доступів. GitHub CLI 2026-09-07 повідомив про недійсний токен.
+Live: https://amo-web-production.up.railway.app, GitHub dxhod/amo-video-tasks,
+перевірений code commit 24d6394. Railway Free: grand-purpose / amo-web + amo-worker; Supabase Free:
+etwuxieyvitrnusykrkr. Демо credentials: `.local/live-demo.json` (окремо від локальних).
+Supabase CLI linked до live; локальні операції виконувати з явним --local.
+Gmail SMTP налаштовано в cloud Supabase; signup resend і recovery API успішні.
+Доставку обох листів підтвердив власник скриньки зі скриншотом; повний браузерний цикл реєстрації, підтвердження email, входу та відновлення пароля пройшов; старий пароль відхиляється, новий працює.
+Telegram налаштовано; реальний алерт прийнято API з першої спроби. 1080p/4K
+analyze/render у live PASS; виправлено пам’ять переставлених фрагментів.
+CI 34200781076 PASS; 17 unit, 9 integration, 3 E2E. Матриця здачі: docs/ACCEPTANCE.md.
+Репозиторій лишається приватним: власник сам надає доступ перевіряючому.
+Live restart посеред job окремо не перевірявся, відновлення lease перевірене локально.
